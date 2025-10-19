@@ -1,0 +1,47 @@
+{
+  "name": "@guardx/contracts",
+  "version": "1.0.0",
+  "description": "GuardX smart contracts for DeFi crash protection",
+  "scripts": {
+    "dev": "hardhat node",
+    "build": "hardhat compile",
+    "test": "hardhat test",
+    "test:coverage": "hardhat coverage",
+    "test:gas": "REPORT_GAS=true hardhat test",
+    "deploy": "hardhat run scripts/deploy.ts",
+    "deploy:local": "hardhat run scripts/deploy.ts --network localhost",
+    "deploy:testnet": "hardhat run scripts/deploy-testnet.ts --network sepolia",
+    "deploy:mainnet": "hardhat run scripts/deploy.ts --network mainnet",
+    "deploy:arbitrum": "hardhat run scripts/deploy.ts --network arbitrum",
+    "deploy:polygon": "hardhat run scripts/deploy.ts --network polygon",
+    "verify:contracts": "hardhat run scripts/verify.ts",
+    "verify:sepolia": "hardhat run scripts/verify.ts --network sepolia",
+    "verify:mainnet": "hardhat run scripts/verify.ts --network mainnet",
+    "lint": "solhint 'contracts/**/*.sol'",
+    "lint:fix": "solhint 'contracts/**/*.sol' --fix",
+    "clean": "hardhat clean",
+    "size": "hardhat size-contracts",
+    "flatten": "hardhat flatten"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^3.0.0",
+    "@nomicfoundation/hardhat-verify": "^1.1.1",
+    "@openzeppelin/contracts": "^4.9.3",
+    "@typechain/ethers-v6": "^0.4.3",
+    "@typechain/hardhat": "^8.0.3",
+    "@types/node": "^20.10.0",
+    "dotenv": "^16.3.1",
+    "ethers": "^6.8.0",
+    "hardhat": "^2.19.0",
+    "hardhat-gas-reporter": "^1.0.9",
+    "solhint": "^4.1.1",
+    "solidity-coverage": "^0.8.5",
+    "typechain": "^8.3.0",
+    "typescript": "^5.3.2"
+  },
+  "dependencies": {
+    "@lit-protocol/lit-node-client": "^6.4.0",
+    "@pythnetwork/pyth-sdk-solidity": "^2.2.0",
+    "chai": "^6.2.0"
+  }
+}

@@ -1,18 +1,55 @@
-import { run } from "hardhat";
 import fs from "fs";
 import path from "path";
 
 async function main() {
-  const args = process.argv.slice(2);
+  // Get deployment file from environment variable or command line args
+  let deploymentFile = process.env.DEPLOYMENT_FILE;
   
-  if (args.length < 1) {
-    console.log("Usage: npx hardhat run scripts/verify.ts --network <network> -- <deployment-file>");
-    console.log("Example: npx hardhat run scripts/verify.ts --network sepolia -- deployments/testnet-deployment-11155111-1234567890.json");
-    process.exit(1);
+  if (!deploymentFile) {
+    // Filter out hardhat-specific arguments
+    const args = process.argv.filter(arg => 
+      !arg.includes('hardhat') && 
+      !arg.includes('scripts/verify') && 
+      !arg.startsWith('--') &&
+      arg.endsWith('.json')
+    );
+
+    if (args.length < 1) {
+      console.log("\n📋 Usage:");
+      console.log("DEPLOYMENT_FILE=deployments/deployment-xxx.json npx hardhat run scripts/verify.ts --network <network>");
+      
+      // Try to find the latest deployment file
+      const deploymentsDir = path.join(process.cwd(), 'deployments');
+      if (fs.existsSync(deploymentsDir)) {
+        const files = fs.readdirSync(deploymentsDir)
+          .filter(f => f.endsWith('.json'))
+          .map(f => ({
+            name: f,
+            time: fs.statSync(path.join(deploymentsDir, f)).mtime.getTime()
+          }))
+          .sort((a, b) => b.time - a.time);
+        
+        if (files.length > 0) {
+          console.log("\n📁 Available deployments:");
+          files.slice(0, 5).forEach((f, i) => {
+            console.log(`   ${i + 1}. ${f.name}`);
+          });
+          console.log("\nUsing latest deployment...");
+          deploymentFile = files[0].name;
+        }
+      }
+      
+      if (!deploymentFile) {
+        process.exit(1);
+      }
+    } else {
+      deploymentFile = args[0];
+    }
   }
 
-  const deploymentFile = args[0];
-  const deploymentPath = path.join(__dirname, '..', deploymentFile);
+  const deploymentPath = path.isAbsolute(deploymentFile)
+    ? deploymentFile
+    : path.join(process.cwd(), 'deployments', path.basename(deploymentFile));
 
   if (!fs.existsSync(deploymentPath)) {
     console.error(`Deployment file not found: ${deploymentPath}`);
@@ -20,145 +57,74 @@ async function main() {
   }
 
   const deployment = JSON.parse(fs.readFileSync(deploymentPath, 'utf8'));
-  console.log(`Verifying contracts from deployment: ${deploymentFile}`);
-  console.log(`Network: ${deployment.network} (Chain ID: ${deployment.chainId})`);
+  console.log(`\n🔍 Verification commands for: ${path.basename(deploymentFile)}`);
+  console.log(`Network: ${deployment.network}\n`);
 
-  try {
-    // Verify PythPriceMonitor
-    if (deployment.contracts.PythPriceMonitor) {
-      console.log("\nVerifying PythPriceMonitor...");
-      await run("verify:verify", {
-        address: deployment.contracts.PythPriceMonitor,
-        constructorArguments: [
-          deployment.chainId === "11155111" ? 
-            "0xDd24F84d36BF92C65F92307595335bdFab5Bbd21" : // Sepolia
-            "0x4305FB66699C3B2702D4d05CF36551390A4c69C6"    // Default
-        ]
-      });
-      console.log("✓ PythPriceMonitor verified");
-    }
-
-    // Verify DEXAggregator
-    if (deployment.contracts.DEXAggregator) {
-      console.log("\nVerifying DEXAggregator...");
-      await run("verify:verify", {
-        address: deployment.contracts.DEXAggregator,
-        constructorArguments: []
-      });
-      console.log("✓ DEXAggregator verified");
-    }
-
-    // Verify CrashGuardCore
-    if (deployment.contracts.CrashGuardCore) {
-      console.log("\nVerifying CrashGuardCore...");
-      await run("verify:verify", {
-        address: deployment.contracts.CrashGuardCore,
-        constructorArguments: []
-      });
-      console.log("✓ CrashGuardCore verified");
-    }
-
-    // Verify EmergencyExecutor
-    if (deployment.contracts.EmergencyExecutor) {
-      console.log("\nVerifying EmergencyExecutor...");
-      await run("verify:verify", {
-        address: deployment.contracts.EmergencyExecutor,
-        constructorArguments: [
-          deployment.contracts.CrashGuardCore,
-          deployment.contracts.DEXAggregator
-        ]
-      });
-      console.log("✓ EmergencyExecutor verified");
-    }
-
-    // Verify LitRelayContract
-    if (deployment.contracts.LitRelayContract) {
-      console.log("\nVerifying LitRelayContract...");
-      await run("verify:verify", {
-        address: deployment.contracts.LitRelayContract,
-        constructorArguments: []
-      });
-      console.log("✓ LitRelayContract verified");
-    }
-
-    // Verify LitProtocolIntegration
-    if (deployment.contracts.LitProtocolIntegration) {
-      console.log("\nVerifying LitProtocolIntegration...");
-      await run("verify:verify", {
-        address: deployment.contracts.LitProtocolIntegration,
-        constructorArguments: [deployment.contracts.LitRelayContract]
-      });
-      console.log("✓ LitProtocolIntegration verified");
-    }
-
-    // Verify CrossChainManager
-    if (deployment.contracts.CrossChainManager) {
-      console.log("\nVerifying CrossChainManager...");
-      await run("verify:verify", {
-        address: deployment.contracts.CrossChainManager,
-        constructorArguments: [
-          deployment.contracts.LitRelayContract,
-          deployment.contracts.LitProtocolIntegration
-        ]
-      });
-      console.log("✓ CrossChainManager verified");
-    }
-
-    // Verify CrossChainEmergencyCoordinator
-    if (deployment.contracts.CrossChainEmergencyCoordinator) {
-      console.log("\nVerifying CrossChainEmergencyCoordinator...");
-      await run("verify:verify", {
-        address: deployment.contracts.CrossChainEmergencyCoordinator,
-        constructorArguments: [
-          deployment.contracts.LitRelayContract,
-          deployment.contracts.LitProtocolIntegration,
-          deployment.contracts.CrossChainManager
-        ]
-      });
-      console.log("✓ CrossChainEmergencyCoordinator verified");
-    }
-
-    // Verify mock tokens if they exist
-    if (deployment.mockTokens) {
-      console.log("\nVerifying mock tokens...");
-      
-      if (deployment.mockTokens.USDC) {
-        await run("verify:verify", {
-          address: deployment.mockTokens.USDC,
-          constructorArguments: ["Mock USDC", "USDC", 6]
-        });
-        console.log("✓ Mock USDC verified");
-      }
-
-      if (deployment.mockTokens.USDT) {
-        await run("verify:verify", {
-          address: deployment.mockTokens.USDT,
-          constructorArguments: ["Mock USDT", "USDT", 6]
-        });
-        console.log("✓ Mock USDT verified");
-      }
-
-      if (deployment.mockTokens.DAI) {
-        await run("verify:verify", {
-          address: deployment.mockTokens.DAI,
-          constructorArguments: ["Mock DAI", "DAI", 18]
-        });
-        console.log("✓ Mock DAI verified");
-      }
-    }
-
-    console.log("\n=== VERIFICATION COMPLETE ===");
-    console.log("All contracts have been verified on the block explorer.");
-
-  } catch (error) {
-    console.error("Verification failed:", error);
-    process.exit(1);
+  // Check if local network
+  if (deployment.network === 'hardhat' || deployment.network === 'localhost') {
+    console.log("⚠️  Cannot verify contracts on local network.");
+    console.log("Deploy to a testnet (sepolia, etc.) to verify contracts.\n");
+    return;
   }
+
+  // Determine Pyth address based on network
+  const pythAddress = deployment.network === 'sepolia' ?
+    "0xDd24F84d36BF92C65F92307595335bdFab5Bbd21" :
+    "0x4305FB66699C3B2702D4d05CF36551390A4c69C6";
+
+  console.log("=== Verification Commands ===\n");
+  console.log("Run these commands to verify your contracts:\n");
+
+  // Generate verification commands
+  const commands: string[] = [];
+
+  if (deployment.mockTokens) {
+    console.log("# Mock Tokens");
+    if (deployment.mockTokens.USDC) {
+      commands.push(`npx hardhat verify --network ${deployment.network} ${deployment.mockTokens.USDC} "Mock USDC" "USDC" 6`);
+    }
+    if (deployment.mockTokens.USDT) {
+      commands.push(`npx hardhat verify --network ${deployment.network} ${deployment.mockTokens.USDT} "Mock USDT" "USDT" 6`);
+    }
+    if (deployment.mockTokens.DAI) {
+      commands.push(`npx hardhat verify --network ${deployment.network} ${deployment.mockTokens.DAI} "Mock DAI" "DAI" 18`);
+    }
+    console.log(commands.join('\n'));
+    console.log();
+    commands.length = 0;
+  }
+
+  console.log("# Core Contracts");
+  if (deployment.contracts.PythPriceMonitor) {
+    commands.push(`npx hardhat verify --network ${deployment.network} ${deployment.contracts.PythPriceMonitor} ${pythAddress}`);
+  }
+  if (deployment.contracts.DEXAggregator) {
+    commands.push(`npx hardhat verify --network ${deployment.network} ${deployment.contracts.DEXAggregator}`);
+  }
+  if (deployment.contracts.CrashGuardCore) {
+    commands.push(`npx hardhat verify --network ${deployment.network} ${deployment.contracts.CrashGuardCore}`);
+  }
+  if (deployment.contracts.EmergencyExecutor) {
+    commands.push(`npx hardhat verify --network ${deployment.network} ${deployment.contracts.EmergencyExecutor} ${deployment.contracts.CrashGuardCore} ${deployment.contracts.DEXAggregator}`);
+  }
+  if (deployment.contracts.LitRelayContract) {
+    commands.push(`npx hardhat verify --network ${deployment.network} ${deployment.contracts.LitRelayContract}`);
+  }
+  if (deployment.contracts.LitProtocolIntegration) {
+    commands.push(`npx hardhat verify --network ${deployment.network} ${deployment.contracts.LitProtocolIntegration} ${deployment.contracts.LitRelayContract}`);
+  }
+  if (deployment.contracts.CrossChainManager) {
+    commands.push(`npx hardhat verify --network ${deployment.network} ${deployment.contracts.CrossChainManager} ${deployment.contracts.LitRelayContract} ${deployment.contracts.LitProtocolIntegration}`);
+  }
+  if (deployment.contracts.CrossChainEmergencyCoordinator) {
+    commands.push(`npx hardhat verify --network ${deployment.network} ${deployment.contracts.CrossChainEmergencyCoordinator} ${deployment.contracts.LitRelayContract} ${deployment.contracts.LitProtocolIntegration} ${deployment.contracts.CrossChainManager}`);
+  }
+
+  console.log(commands.join('\n'));
+  console.log("\n💡 Tip: Copy and run these commands one by one, or save them to a shell script.\n");
 }
 
 main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
-
-export {};

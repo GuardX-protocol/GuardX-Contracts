@@ -1,10 +1,12 @@
-import { HardhatUserConfig } from "hardhat/config";
-import "@nomicfoundation/hardhat-toolbox";
+import "@nomicfoundation/hardhat-ethers";
+import "@nomicfoundation/hardhat-verify";
+import HardhatIgnitionEthersPlugin from "@nomicfoundation/hardhat-ignition-ethers";
 import * as dotenv from "dotenv";
 
 dotenv.config();
 
-const config: HardhatUserConfig = {
+const config: any = {
+  plugins: [HardhatIgnitionEthersPlugin],
   solidity: {
     version: "0.8.20",
     settings: {
@@ -16,32 +18,37 @@ const config: HardhatUserConfig = {
   },
   networks: {
     hardhat: {
+      type: "edr-simulated",
       chainId: 31337,
       gas: 12000000,
       blockGasLimit: 12000000,
       allowUnlimitedContractSize: true
     },
     sepolia: {
-      url: process.env.SEPOLIA_RPC_URL || "",
+      type: "http",
+      url: process.env.SEPOLIA_RPC_URL || "https://sepolia.infura.io/v3/YOUR_INFURA_KEY",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 11155111,
       gas: 6000000,
       gasPrice: 20000000000
     },
     mainnet: {
-      url: process.env.MAINNET_RPC_URL || "",
+      type: "http",
+      url: process.env.MAINNET_RPC_URL || "https://mainnet.infura.io/v3/YOUR_INFURA_KEY",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 1,
       gas: 6000000,
       gasPrice: 20000000000
     },
     arbitrum: {
+      type: "http",
       url: process.env.ARBITRUM_RPC_URL || "https://arb1.arbitrum.io/rpc",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 42161,
       gas: 6000000
     },
     polygon: {
+      type: "http",
       url: process.env.POLYGON_RPC_URL || "https://polygon-rpc.com",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 137,
@@ -49,6 +56,7 @@ const config: HardhatUserConfig = {
       gasPrice: 30000000000
     },
     base: {
+      type: "http",
       url: process.env.BASE_RPC_URL || "https://mainnet.base.org",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 8453,
@@ -63,7 +71,7 @@ const config: HardhatUserConfig = {
       polygon: process.env.POLYGONSCAN_API_KEY || "",
       base: process.env.BASESCAN_API_KEY || ""
     }
-  },
+  } as any,
   gasReporter: {
     enabled: process.env.REPORT_GAS === "true",
     currency: "USD",

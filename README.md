@@ -1,182 +1,296 @@
-# GuardX DeFi Platform
+# GuardX Smart Contracts
 
-Advanced DeFi crash protection platform with automated emergency response capabilities.
+Smart contract infrastructure for automated DeFi crash protection with cross-chain capabilities.
 
 ## Overview
 
-GuardX is a comprehensive DeFi protection platform that enables users to deposit ETH and ERC20 assets into a secure smart contract system. The platform leverages real-time Pyth Network price feeds to detect multi-asset market crashes and automatically executes emergency protection actions, including selling risky assets and converting them to stablecoins through optimized DEX swaps.
+GuardX provides a decentralized crash protection system for DeFi portfolios through a suite of Solidity smart contracts. The platform monitors real-time price feeds via Pyth Network oracles and executes automated emergency protection actions when market crash conditions are detected. The system supports cross-chain operations through Lit Protocol integration and programmable key pairs (PKPs).
 
 ## Architecture
 
-The platform consists of three main components:
+### Core Contracts
 
-- **Smart Contracts** (`/contracts`): Solidity contracts for asset management, price monitoring, and emergency execution
-- **Backend Services** (`/backend`): Node.js/TypeScript API server with monitoring and execution services
-- **Frontend Application** (`/frontend`): React/Vite application with responsive design and real-time updates
+**CrashGuardCore.sol**
+- Primary contract for asset management and protection policies
+- Handles ETH and ERC20 token deposits and withdrawals
+- Manages user protection configurations and thresholds
+- Emits events for monitoring and off-chain integrations
 
-## Features
+**EmergencyExecutor.sol**
+- Executes emergency protection actions during market crashes
+- Performs asset conversions and liquidations
+- Implements slippage protection and MEV resistance
+- Supports batch operations for gas efficiency
 
-- 🛡️ **Automated Crash Protection**: Real-time monitoring with emergency asset conversion
-- 🔗 **Vincent Wallet Integration**: Secure delegation for automated transactions
-- 📊 **Pyth Network Oracles**: High-frequency, low-latency price feeds
-- 🎯 **MEV Protection**: Advanced slippage and front-running protection
-- 📱 **Mobile-First Design**: Responsive interface optimized for all devices
-- 🔍 **Comprehensive Audit Trail**: Complete transaction logging and compliance reporting
+**PythPriceMonitor.sol**
+- Integrates with Pyth Network for real-time price feeds
+- Monitors multiple asset prices simultaneously
+- Detects crash conditions based on configurable thresholds
+- Provides price validation and staleness checks
 
-## Quick Start
+**DEXAggregator.sol**
+- Placeholder for decentralized exchange aggregation
+- Designed for optimal swap routing and execution
+- Supports multiple DEX protocols
 
-### Prerequisites
+### Cross-Chain Infrastructure
 
-- Node.js 18+ and npm 9+
-- MongoDB (for backend data storage)
-- Redis (for job queuing)
-- Ethereum development environment (Hardhat)
+**LitProtocolIntegration.sol**
+- Manages PKP authentication and authorization
+- Enables programmable cryptography for decentralized key management
+- Supports conditional access control via Lit Actions
 
-### Installation
+**LitRelayContract.sol**
+- Handles cross-chain message relay and verification
+- Validates PKP signatures for cross-chain operations
+- Manages cross-chain state synchronization
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd guardx-defi-platform
-   ```
+**CrossChainManager.sol**
+- Coordinates asset locking and migration across chains
+- Tracks cross-chain asset movements
+- Implements security checks for cross-chain transfers
 
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
+**CrossChainEmergencyCoordinator.sol**
+- Orchestrates emergency actions across multiple chains
+- Synchronizes protection policies between chains
+- Manages multi-chain crash detection and response
 
-3. **Set up environment variables**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your configuration
-   ```
+## Prerequisites
 
-4. **Start development servers**
-   ```bash
-   npm run dev
-   ```
+- Node.js 18 or higher
+- pnpm package manager
+- Git
 
-This will start:
-- Smart contracts development node on `http://localhost:8545`
-- Backend API server on `http://localhost:3000`
-- Frontend application on `http://localhost:5173`
+## Installation
 
-### Individual Component Setup
-
-#### Smart Contracts
 ```bash
 cd contracts
-npm install
-npm run build
-npm run test
-npm run deploy:local
+pnpm install
 ```
 
-#### Backend Services
+## Configuration
+
+Create a `.env` file in the contracts directory:
+
 ```bash
-cd backend
-npm install
-npm run build
-npm run dev
+cp .env.example .env
 ```
 
-#### Frontend Application
+Required environment variables:
+
+```
+PRIVATE_KEY=                    # Deployment wallet private key
+SEPOLIA_RPC_URL=               # Sepolia testnet RPC endpoint
+MAINNET_RPC_URL=               # Ethereum mainnet RPC endpoint
+ARBITRUM_RPC_URL=              # Arbitrum RPC endpoint
+POLYGON_RPC_URL=               # Polygon RPC endpoint
+BASE_RPC_URL=                  # Base RPC endpoint
+ETHERSCAN_API_KEY=             # Etherscan API key for verification
+ARBISCAN_API_KEY=              # Arbiscan API key
+POLYGONSCAN_API_KEY=           # Polygonscan API key
+BASESCAN_API_KEY=              # Basescan API key
+REPORT_GAS=false               # Enable gas reporting
+```
+
+## Development
+
+### Compile Contracts
+
 ```bash
-cd frontend
-npm install
-npm run dev
+npx hardhat compile
 ```
 
-## Development Workflow
+### Run Tests
 
-### Testing
 ```bash
 # Run all tests
-npm run test
+pnpm test
 
-# Run tests for specific component
-npm run test:contracts
-npm run test:backend
-npm run test:frontend
+# Run with gas reporting
+pnpm run test:gas
+
+# Generate coverage report
+pnpm run test:coverage
+```
+
+### Local Development
+
+Start a local Hardhat node:
+
+```bash
+pnpm run dev
+```
+
+In a separate terminal, deploy contracts to local network:
+
+```bash
+npx hardhat run scripts/deploy.ts --network hardhat
 ```
 
 ### Linting
-```bash
-# Lint all components
-npm run lint
 
-# Fix linting issues
-npm run lint:fix
+```bash
+# Check for issues
+pnpm run lint
+
+# Auto-fix issues
+pnpm run lint:fix
 ```
 
-### Building
+## Deployment
+
+### Testnet Deployment
+
+Deploy to Sepolia testnet:
+
 ```bash
-# Build all components
-npm run build
+npx hardhat run scripts/deploy.ts --network sepolia
 ```
+
+### Mainnet Deployment
+
+Deploy to Ethereum mainnet:
+
+```bash
+npx hardhat run scripts/deploy.ts --network mainnet
+```
+
+### Multi-Chain Deployment
+
+Deploy to specific networks:
+
+```bash
+# Arbitrum
+npx hardhat run scripts/deploy.ts --network arbitrum
+
+# Polygon
+npx hardhat run scripts/deploy.ts --network polygon
+```
+
+### Contract Verification
+
+After deployment, verify contracts on block explorers:
+
+```bash
+# Verify on Hardhat (local)
+npx hardhat run scripts/verify.ts --network hardhat
+
+# Verify on Sepolia
+npx hardhat run scripts/verify.ts --network sepolia
+
+# Verify on mainnet
+npx hardhat run scripts/verify.ts --network mainnet
+```
+
+Deployment artifacts are saved in the `deployments/` directory with network-specific information.
+
+## How It Works
+
+### 1. Asset Protection Setup
+
+Users deposit assets into CrashGuardCore and configure protection policies:
+
+- **Crash Threshold**: Percentage price drop that triggers emergency actions
+- **Max Slippage**: Maximum acceptable slippage for emergency swaps
+- **Stablecoin Preference**: Target stablecoin for asset conversion
+- **Gas Limit**: Maximum gas for emergency execution
+
+### 2. Price Monitoring
+
+PythPriceMonitor continuously tracks asset prices:
+
+- Fetches real-time price data from Pyth Network oracles
+- Validates price freshness and accuracy
+- Compares current prices against historical baselines
+- Detects crash conditions when thresholds are breached
+
+### 3. Emergency Execution
+
+When a crash is detected, EmergencyExecutor automatically:
+
+- Validates crash conditions and user authorization
+- Executes asset conversions to stablecoins
+- Applies slippage protection and MEV resistance
+- Records all actions for audit trails
+
+### 4. Cross-Chain Protection
+
+For multi-chain portfolios:
+
+- LitProtocolIntegration authenticates users via PKPs
+- CrossChainManager locks assets and initiates migrations
+- LitRelayContract verifies and relays cross-chain messages
+- CrossChainEmergencyCoordinator synchronizes protection across chains
+
+## Testing
+
+The test suite covers:
+
+- Asset deposit and withdrawal flows
+- Protection policy management
+- Emergency execution scenarios
+- Cross-chain operations
+- Access control and authorization
+- Edge cases and failure modes
+
+Test files are located in `test/`:
+
+- `CrashGuardCore.test.ts` - Core functionality tests
+- `EmergencyExecutor.test.ts` - Emergency action tests
+- `LitProtocol.test.ts` - Cross-chain and PKP tests
+- `CoreContracts.test.ts` - Integration tests
+
+## Security Considerations
+
+- All state-changing functions implement reentrancy protection
+- Access control enforced via owner and role-based permissions
+- Input validation on all external calls
+- Safe math operations via Solidity 0.8+ overflow protection
+- Comprehensive event logging for monitoring
+
+## Gas Optimization
+
+Contracts are optimized for gas efficiency:
+
+- Compiler optimization enabled (200 runs)
+- Efficient storage patterns and packing
+- Batch operations to reduce transaction costs
+- Minimal external calls and storage reads
 
 ## Project Structure
 
 ```
-guardx-defi-platform/
-├── contracts/                 # Smart contracts (Hardhat)
-│   ├── contracts/
-│   │   ├── interfaces/       # Contract interfaces
-│   │   ├── CrashGuardCore.sol
-│   │   ├── PythPriceMonitor.sol
-│   │   └── EmergencyExecutor.sol
-│   ├── scripts/              # Deployment scripts
-│   └── test/                 # Contract tests
-├── backend/                  # Node.js/TypeScript backend
-│   ├── src/
-│   │   ├── controllers/      # API controllers
-│   │   ├── services/         # Business logic services
-│   │   ├── middleware/       # Express middleware
-│   │   ├── config/          # Configuration files
-│   │   └── types/           # TypeScript type definitions
-│   └── dist/                # Compiled JavaScript
-├── frontend/                 # React/Vite frontend
-│   ├── src/
-│   │   ├── components/      # React components
-│   │   ├── pages/           # Page components
-│   │   ├── hooks/           # Custom React hooks
-│   │   ├── services/        # API services
-│   │   ├── stores/          # State management
-│   │   └── utils/           # Utility functions
-│   └── dist/                # Built frontend assets
-└── docs/                    # Documentation
+contracts/
+├── contracts/
+│   ├── interfaces/                    # Contract interfaces
+│   ├── CrashGuardCore.sol            # Main asset management
+│   ├── EmergencyExecutor.sol         # Emergency actions
+│   ├── PythPriceMonitor.sol          # Price monitoring
+│   ├── DEXAggregator.sol             # DEX integration
+│   ├── LitProtocolIntegration.sol    # PKP management
+│   ├── LitRelayContract.sol          # Cross-chain relay
+│   ├── CrossChainManager.sol         # Asset migration
+│   ├── CrossChainEmergencyCoordinator.sol
+│   └── MockERC20.sol                 # Testing utility
+├── scripts/
+│   ├── deploy.ts                     # Main deployment script
+│   ├── deploy-testnet.ts             # Testnet deployment
+│   └── verify.ts                     # Contract verification
+├── test/                             # Test suite
+├── deployments/                      # Deployment artifacts
+└── hardhat.config.ts                 # Hardhat configuration
 ```
 
-## Key Technologies
+## Technology Stack
 
-- **Smart Contracts**: Solidity, Hardhat 3.0+, OpenZeppelin
-- **Backend**: Node.js, TypeScript, Express.js, MongoDB, Redis
-- **Frontend**: React, TypeScript, Vite, Tailwind CSS, Wagmi
-- **Blockchain**: Ethereum, Pyth Network, Vincent SDK
-- **Testing**: Jest, Vitest, Hardhat Test Framework
-
-## Environment Variables
-
-See `.env.example` for all required environment variables. Key variables include:
-
-- `ETHEREUM_RPC_URL`: Ethereum node RPC endpoint
-- `MONGODB_URI`: MongoDB connection string
-- `JWT_SECRET`: Secret key for JWT token signing
-- `PYTH_NETWORK_URL`: Pyth Network API endpoint
-- `VINCENT_SDK_API_KEY`: Vincent SDK API key
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+- Solidity 0.8.20
+- Hardhat 3.0+
+- OpenZeppelin Contracts 4.9.6
+- Pyth Network SDK
+- Lit Protocol SDK
+- TypeScript
+- Ethers.js v6
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Support
-
-For support and questions, please open an issue in the GitHub repository or contact the development team.
+MIT License

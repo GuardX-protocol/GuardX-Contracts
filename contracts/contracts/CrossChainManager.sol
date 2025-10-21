@@ -11,10 +11,6 @@ import "./interfaces/ICrossChainManager.sol";
 import "./interfaces/ILitRelayContract.sol";
 import "./interfaces/ILitProtocolIntegration.sol";
 
-/**
- * @title CrossChainManager
- * @dev Manages cross-chain asset operations and migrations using Lit Protocol
- */
 contract CrossChainManager is ICrossChainManager, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using ECDSA for bytes32;
@@ -99,14 +95,6 @@ contract CrossChainManager is ICrossChainManager, Ownable, ReentrancyGuard {
         emergencyCoordinators[msg.sender] = true;
     }
 
-    /**
-     * @dev Lock asset for cross-chain operation
-     * @param user User address
-     * @param token Token address to lock
-     * @param amount Amount to lock
-     * @param targetChainId Target chain for the operation
-     * @return bytes32 Lock hash
-     */
     function lockAsset(
         address user,
         address token,
@@ -173,12 +161,10 @@ contract CrossChainManager is ICrossChainManager, Ownable, ReentrancyGuard {
             "Lock expired"
         );
 
-        // Verify PKP signature
         bytes32 unlockHash = keccak256(
             abi.encodePacked(user, lockHash, block.timestamp)
         );
         
-        // Create PKP signature struct for verification
         ILitRelayContract.PKPSignature memory pkpSig = ILitRelayContract.PKPSignature({
             signature: signature,
             pkpAddress: _getUserPKPAddress(user),
@@ -191,27 +177,16 @@ contract CrossChainManager is ICrossChainManager, Ownable, ReentrancyGuard {
             "Invalid PKP signature"
         );
 
-        // Unlock the asset
         asset.isLocked = false;
 
-        // Transfer tokens back
         IERC20(asset.tokenAddress).safeTransfer(msg.sender, asset.amount);
 
-        // Update portfolio
         _updateCrossChainPortfolio(user, asset.tokenAddress, asset.amount, asset.chainId, false);
 
         emit AssetUnlocked(user, asset.tokenAddress, asset.amount, asset.chainId, lockHash);
         return true;
     }
 
-    /**
-     * @dev Initiate cross-chain asset migration
-     * @param user User address
-     * @param token Token address to migrate
-     * @param amount Amount to migrate
-     * @param targetChainId Target chain ID
-     * @return bytes32 Migration hash
-     */
     function initiateCrossChainMigration(
         address user,
         address token,
@@ -235,10 +210,8 @@ contract CrossChainManager is ICrossChainManager, Ownable, ReentrancyGuard {
             )
         );
 
-        // Lock assets for migration
         bytes32 lockHash = this.lockAsset(user, token, amount, targetChainId);
 
-        // Create migration record
         AssetMigration memory migration = AssetMigration({
             user: user,
             tokenAddress: token,
@@ -268,12 +241,6 @@ contract CrossChainManager is ICrossChainManager, Ownable, ReentrancyGuard {
         return migrationHash;
     }
 
-    /**
-     * @dev Complete cross-chain migration
-     * @param migrationHash Migration hash
-     * @param signature PKP signature authorizing completion
-     * @return bool True if successful
-     */
     function completeCrossChainMigration(
         bytes32 migrationHash,
         bytes calldata signature
@@ -286,7 +253,6 @@ contract CrossChainManager is ICrossChainManager, Ownable, ReentrancyGuard {
             "Migration expired"
         );
 
-        // Verify PKP signature
         bytes32 completionHash = keccak256(
             abi.encodePacked(migration.user, migrationHash, block.timestamp)
         );

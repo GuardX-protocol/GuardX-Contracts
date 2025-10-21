@@ -203,7 +203,7 @@ async function main() {
             path.join(deploymentsDir, filename),
             JSON.stringify(deploymentInfo, null, 2)
         );
-        console.log(`\n💾 Saved to: deployments/${filename}`);
+        console.log(`\n💾 Saved to: deployments/${filename}-${networkName}`);
 
         console.log("\n=== VERIFICATION COMMANDS ===");
         console.log(`npx hardhat verify --network baseSepolia ${addresses.PythPriceMonitor} ${PYTH_CONTRACT}`);

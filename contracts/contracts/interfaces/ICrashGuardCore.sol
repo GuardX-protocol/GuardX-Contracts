@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/**
- * @title ICrashGuardCore
- * @dev Interface for the core crash protection contract
- */
 interface ICrashGuardCore {
     struct Asset {
         address tokenAddress;

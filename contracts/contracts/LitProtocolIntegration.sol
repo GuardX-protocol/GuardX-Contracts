@@ -8,11 +8,7 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "./interfaces/ILitProtocolIntegration.sol";
 import "./interfaces/ILitRelayContract.sol";
 
-/**
- * @title LitProtocolIntegration
- * @dev Integration contract for Lit Protocol features with existing GuardX contracts
- * Handles PKP authentication, conditional access, and encrypted data storage
- */
+
 contract LitProtocolIntegration is ILitProtocolIntegration, Ownable, ReentrancyGuard {
     using ECDSA for bytes32;
 

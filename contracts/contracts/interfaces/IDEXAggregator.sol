@@ -42,7 +42,7 @@ interface IDEXAggregator {
         address tokenIn,
         address tokenOut,
         uint256 amountIn
-    ) external view returns (RouteInfo memory);
+    ) external returns (RouteInfo memory);
     
     function executeSwap(SwapParams calldata params) external returns (uint256 amountOut);
     function executeSwapWithMEVProtection(

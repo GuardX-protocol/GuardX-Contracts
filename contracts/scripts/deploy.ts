@@ -23,10 +23,10 @@ async function main() {
         const nonce = await ethers.provider.getTransactionCount(deployer.address);
         console.log("Current nonce:", nonce, "\n");
 
-        const PYTH_CONTRACT = process.env.PYTH_CONTRACT || "0xA2aa501b19aff244D90cc15a4Cf739D2725B5729";
-        const ONEINCH_ROUTER = process.env.ONEINCH_ROUTER || "0x1111111254EEB25477B68fb85Ed929f73A960582";
-        const UNISWAP_ROUTER = process.env.UNISWAP_ROUTER || "0x2626664c2603336E57B271c5C0b26F421741e481";
-        const UNISWAP_QUOTER = process.env.UNISWAP_QUOTER || "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a";
+        const PYTH_CONTRACT = process.env.PYTH_CONTRACT;
+        const ONEINCH_ROUTER = process.env.ONEINCH_ROUTER;
+        const UNISWAP_ROUTER = process.env.UNISWAP_ROUTER;
+        const UNISWAP_QUOTER = process.env.UNISWAP_QUOTER;
 
         console.log("1. Deploying PythPriceMonitor...");
         const PythPriceMonitor = await ethers.getContractFactory("PythPriceMonitor");
@@ -183,11 +183,12 @@ async function main() {
             fs.mkdirSync(deploymentsDir, { recursive: true });
         }
 
-        const networkName = (network as any).name || 'base-sepolia';
+        
+        const networkName = (await network.connect()).networkName;
 
         const deploymentInfo = {
-            network: networkName,
-            chainId: 84532,
+            network: (await network.connect()).networkName,
+            chainId: (await network.connect()).networkConfig.chainId,
             timestamp: new Date().toISOString(),
             contracts: addresses,
             externalContracts: {
@@ -203,18 +204,18 @@ async function main() {
             path.join(deploymentsDir, filename),
             JSON.stringify(deploymentInfo, null, 2)
         );
-        console.log(`\n💾 Saved to: deployments/${filename}-${networkName}`);
+        console.log(`\n💾 Saved to: deployments/${filename}`);
 
         console.log("\n=== VERIFICATION COMMANDS ===");
-        console.log(`npx hardhat verify --network baseSepolia ${addresses.PythPriceMonitor} ${PYTH_CONTRACT}`);
-        console.log(`npx hardhat verify --network baseSepolia ${addresses.DEXAggregator} ${ONEINCH_ROUTER} ${UNISWAP_ROUTER} ${UNISWAP_QUOTER}`);
-        console.log(`npx hardhat verify --network baseSepolia ${addresses.CrashGuardCore}`);
-        console.log(`npx hardhat verify --network baseSepolia ${addresses.EmergencyExecutor} ${addresses.CrashGuardCore} ${addresses.DEXAggregator}`);
-        console.log(`npx hardhat verify --network baseSepolia ${addresses.LitRelayContract}`);
-        console.log(`npx hardhat verify --network baseSepolia ${addresses.LitProtocolIntegration} ${addresses.LitRelayContract}`);
-        console.log(`npx hardhat verify --network baseSepolia ${addresses.CrossChainManager} ${addresses.LitRelayContract} ${addresses.LitProtocolIntegration}`);
-        console.log(`npx hardhat verify --network baseSepolia ${addresses.CrossChainEmergencyCoordinator} ${addresses.LitRelayContract} ${addresses.LitProtocolIntegration} ${addresses.CrossChainManager}`);
-        console.log(`npx hardhat verify --network baseSepolia ${addresses.PortfolioRebalancer} ${addresses.CrashGuardCore} ${addresses.DEXAggregator} ${addresses.PythPriceMonitor}`);
+        console.log(`npx hardhat verify --network ${networkName} ${addresses.PythPriceMonitor} ${PYTH_CONTRACT}`);
+        console.log(`npx hardhat verify --network ${networkName} ${addresses.DEXAggregator} ${ONEINCH_ROUTER} ${UNISWAP_ROUTER} ${UNISWAP_QUOTER}`);
+        console.log(`npx hardhat verify --network ${networkName} ${addresses.CrashGuardCore}`);
+        console.log(`npx hardhat verify --network ${networkName} ${addresses.EmergencyExecutor} ${addresses.CrashGuardCore} ${addresses.DEXAggregator}`);
+        console.log(`npx hardhat verify --network ${networkName} ${addresses.LitRelayContract}`);
+        console.log(`npx hardhat verify --network ${networkName} ${addresses.LitProtocolIntegration} ${addresses.LitRelayContract}`);
+        console.log(`npx hardhat verify --network ${networkName} ${addresses.CrossChainManager} ${addresses.LitRelayContract} ${addresses.LitProtocolIntegration}`);
+        console.log(`npx hardhat verify --network ${networkName} ${addresses.CrossChainEmergencyCoordinator} ${addresses.LitRelayContract} ${addresses.LitProtocolIntegration} ${addresses.CrossChainManager}`);
+        console.log(`npx hardhat verify --network ${networkName} ${addresses.PortfolioRebalancer} ${addresses.CrashGuardCore} ${addresses.DEXAggregator} ${addresses.PythPriceMonitor}`);
 
     } catch (error) {
         console.error("\n❌ Deployment failed:", error);

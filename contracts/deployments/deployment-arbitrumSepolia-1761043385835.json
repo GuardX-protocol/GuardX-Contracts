@@ -1,0 +1,22 @@
+{
+  "network": "arbitrumSepolia",
+  "chainId": 421614,
+  "timestamp": "2025-10-21T10:43:05.834Z",
+  "contracts": {
+    "PythPriceMonitor": "0xB9408069f2dC82AB1a13eb53d53F9CD8986774a7",
+    "DEXAggregator": "0x126Ab675060720d699A6470c5DCe3EBdD5E0029e",
+    "CrashGuardCore": "0xB867f226388e1695BE040EA45c7E13F8fB493E9a",
+    "EmergencyExecutor": "0x110704f8337A9CF4e236f0d3A67E5F39189539c7",
+    "LitRelayContract": "0x72BB4C4d925e12Fb8cc9776a32c5dbE8aB9DB500",
+    "LitProtocolIntegration": "0x6952402ed7a5a6cCB5033f7F84670aec1540C493",
+    "CrossChainManager": "0xEfa8B514714ebD129B3B011ce379C86225ce7244",
+    "CrossChainEmergencyCoordinator": "0xEfcB2f4aAf6c24E85e354a07ae7CAef15d81B40d",
+    "PortfolioRebalancer": "0xA1ED2F7C58a7A5e220084439eB1d966F2C629DE0"
+  },
+  "externalContracts": {
+    "PythContract": "0x4374e5a8b9C22271E9EB878A2AA31DE97DF15DAF",
+    "OneInchRouter": "0x1111111254EEB25477B68fb85Ed929f73A960582",
+    "UniswapRouter": "0x101F443B4d1b059569D643917553c771E1b9663E",
+    "UniswapQuoter": "0x2779a0CC1c3e0E44D2542EC3e79e3864Ae93Ef0B"
+  }
+}

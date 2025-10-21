@@ -47,7 +47,7 @@ const config: any = {
       chainId: 42161,
       gas: 6000000
     },
-    arbitumSepolia: {
+    arbitrumSepolia: {
       type: "http",
       url: process.env.ARBITRUM_SEPOLIA_RPC_URL || "https://arbitrum-sepolia.drpc.org",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],

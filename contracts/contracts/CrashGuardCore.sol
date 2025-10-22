@@ -9,16 +9,65 @@ import "./interfaces/ICrashGuardCore.sol";
 import "./interfaces/ILitProtocolIntegration.sol";
 import "./interfaces/ILitRelayContract.sol";
 
+// Interface for ERC20 metadata (optional extension)
+interface IERC20Metadata {
+    function symbol() external view returns (string memory);
+    function name() external view returns (string memory);
+    function decimals() external view returns (uint8);
+}
+
 contract CrashGuardCore is ICrashGuardCore, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
+
+    // Custom errors for gas efficiency
+    error TokenBlacklisted();
+    error TokenNotSupported();
+    error OnlyEmergencyExecutor();
+    error UserNotPKPAuthorized();
+    error NotAuthorizedByLitAction();
+    error UnauthorizedBridge();
+    error DepositAlreadyProcessed();
+    error InvalidUserAddress();
+    error MinimumStablecoinRequired();
+    error MinimumTokenRequired();
+    error ETHAmountMismatch();
+    error ETHNotExpectedForERC20();
+    error AmountMustBePositive();
+    error InsufficientBalance();
+    error ETHTransferFailed();
+    error InvalidCrashThreshold();
+    error MaxSlippageExceeded();
+    error InvalidStablecoin();
+    error StablecoinNotRegistered();
+    error GasLimitTooLow();
+    error InvalidTokenAddress();
+    error CannotRemoveETH();
+    error InvalidAddress();
+    error InvalidPKPAddress();
+    error InvalidLitActionID();
+    error PKPNotRegistered();
+    error PKPAddressMismatch();
+    error PKPNotActive();
+    error NotAuthorized();
+    error ExecutionAlreadyProcessed();
+    error LitActionIDMismatch();
+    error IndexOutOfBounds();
+    error TokenNotSupportedForStatus();
+    error InvalidBridgeAddress();
 
     // User portfolios mapping
     mapping(address => Portfolio) private userPortfolios;
     mapping(address => ProtectionPolicy) private userPolicies;
     mapping(address => mapping(address => uint256)) private userBalances;
 
-    // Supported tokens mapping
+    // Supported tokens mapping (optional - for enhanced features)
     mapping(address => bool) public supportedTokens;
+
+    // Permissionless mode - allows any token deposits
+    bool public permissionlessMode = true;
+
+    // Blacklisted tokens (for security)
+    mapping(address => bool) public blacklistedTokens;
 
     // Emergency executor address
     address public emergencyExecutor;
@@ -26,67 +75,159 @@ contract CrashGuardCore is ICrashGuardCore, Ownable, ReentrancyGuard {
     // Lit Protocol integration
     ILitProtocolIntegration public litProtocolIntegration;
     ILitRelayContract public litRelayContract;
-    
+
+    // Cross-chain bridge support
+    mapping(address => bool) public authorizedBridges;
+    mapping(bytes32 => bool) public processedCrossChainDeposits;
+
     // PKP-based operations
     mapping(address => bool) public pkpAuthorizedUsers;
     mapping(address => string) public userLitActions;
     mapping(bytes32 => bool) public processedLitActionExecutions;
 
-    // Constants
-    uint256 private constant MAX_SLIPPAGE = 5000; // 50% max slippage
-    uint256 private constant MIN_DEPOSIT = 1e15; // 0.001 ETH minimum
+    // Constants - configurable from client side
+    uint256 public constant MAX_SLIPPAGE_LIMIT = 5000; // 50% absolute max
+    uint256 public constant MIN_STABLECOIN_DEPOSIT = 1e6; // 1 USDC/USDT (6 decimals)
+    uint256 public constant MIN_TOKEN_DEPOSIT = 1e16; // 0.01 tokens (18 decimals)
+
+    // Stablecoin registry
+    mapping(address => bool) public isStablecoin;
 
     modifier onlyEmergencyExecutor() {
-        require(msg.sender == emergencyExecutor, "Only emergency executor");
+        if (msg.sender != emergencyExecutor) revert OnlyEmergencyExecutor();
         _;
     }
 
     modifier validToken(address token) {
-        require(supportedTokens[token], "Token not supported");
+        if (permissionlessMode) {
+            if (blacklistedTokens[token]) revert TokenBlacklisted();
+        } else {
+            if (!supportedTokens[token]) revert TokenNotSupported();
+        }
         _;
     }
 
     modifier onlyPKPAuthorized(address user) {
-        require(pkpAuthorizedUsers[user], "User not PKP authorized");
+        if (!pkpAuthorizedUsers[user]) revert UserNotPKPAuthorized();
         _;
     }
 
     modifier onlyLitAction(string memory actionId) {
-        require(
-            address(litProtocolIntegration) != address(0) &&
-            litProtocolIntegration.isAuthorizedByLitAction(msg.sender, actionId, ""),
-            "Not authorized by Lit Action"
-        );
+        if (
+            address(litProtocolIntegration) == address(0) ||
+            !litProtocolIntegration.isAuthorizedByLitAction(
+                msg.sender,
+                actionId,
+                ""
+            )
+        ) revert NotAuthorizedByLitAction();
         _;
     }
 
     constructor() {
         // ETH is always supported (represented as address(0))
         supportedTokens[address(0)] = true;
+
+        // Start in permissionless mode
+        permissionlessMode = true;
     }
 
     function depositAsset(
         address token,
         uint256 amount
     ) external payable nonReentrant validToken(token) {
-        require(amount >= MIN_DEPOSIT, "Amount below minimum");
+        _processDeposit(msg.sender, token, amount);
+    }
+
+    /**
+     * @dev Cross-chain deposit function
+     * @param user User address on destination chain
+     * @param token Token address
+     * @param amount Amount to deposit
+     * @param sourceChain Source chain identifier
+     * @param depositHash Unique deposit hash from source chain
+     */
+    function crossChainDeposit(
+        address user,
+        address token,
+        uint256 amount,
+        uint256 sourceChain,
+        bytes32 depositHash
+    ) external nonReentrant validToken(token) {
+        if (!authorizedBridges[msg.sender]) revert UnauthorizedBridge();
+        if (processedCrossChainDeposits[depositHash])
+            revert DepositAlreadyProcessed();
+        if (user == address(0)) revert InvalidUserAddress();
+
+        // Mark as processed to prevent replay
+        processedCrossChainDeposits[depositHash] = true;
+
+        // Process the deposit for the user
+        _processDepositInternal(user, token, amount);
+
+        emit CrossChainDepositProcessed(
+            user,
+            token,
+            amount,
+            sourceChain,
+            depositHash
+        );
+    }
+
+    /**
+     * @dev Internal deposit processing
+     * @param user User address
+     * @param token Token address
+     * @param amount Amount to deposit
+     */
+    function _processDeposit(
+        address user,
+        address token,
+        uint256 amount
+    ) private {
+        // Auto-detect stablecoin if not set (basic heuristic)
+        if (!isStablecoin[token] && !supportedTokens[token]) {
+            _autoDetectStablecoin(token);
+        }
+
+        // Check minimum deposit based on token type
+        if (isStablecoin[token]) {
+            if (amount < MIN_STABLECOIN_DEPOSIT)
+                revert MinimumStablecoinRequired();
+        } else {
+            if (amount < MIN_TOKEN_DEPOSIT) revert MinimumTokenRequired();
+        }
 
         if (token == address(0)) {
             // ETH deposit
-            require(msg.value == amount, "ETH amount mismatch");
+            if (msg.value != amount) revert ETHAmountMismatch();
         } else {
             // ERC20 deposit
-            require(msg.value == 0, "ETH not expected for ERC20");
+            if (msg.value != 0) revert ETHNotExpectedForERC20();
             IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         }
 
+        _processDepositInternal(user, token, amount);
+    }
+
+    /**
+     * @dev Internal deposit processing (shared by regular and cross-chain deposits)
+     * @param user User address
+     * @param token Token address
+     * @param amount Amount to deposit
+     */
+    function _processDepositInternal(
+        address user,
+        address token,
+        uint256 amount
+    ) private {
         // Update user balance
-        userBalances[msg.sender][token] += amount;
+        userBalances[user][token] += amount;
 
         // Update portfolio
-        _updatePortfolio(msg.sender, token, amount, true);
+        _updatePortfolio(user, token, amount, true);
 
-        emit AssetDeposited(msg.sender, token, amount);
+        emit AssetDeposited(user, token, amount);
     }
 
     /**
@@ -98,11 +239,9 @@ contract CrashGuardCore is ICrashGuardCore, Ownable, ReentrancyGuard {
         address token,
         uint256 amount
     ) external nonReentrant validToken(token) {
-        require(amount > 0, "Amount must be positive");
-        require(
-            userBalances[msg.sender][token] >= amount,
-            "Insufficient balance"
-        );
+        if (amount == 0) revert AmountMustBePositive();
+        if (userBalances[msg.sender][token] < amount)
+            revert InsufficientBalance();
 
         // Update user balance
         userBalances[msg.sender][token] -= amount;
@@ -114,7 +253,7 @@ contract CrashGuardCore is ICrashGuardCore, Ownable, ReentrancyGuard {
         if (token == address(0)) {
             // ETH withdrawal
             (bool success, ) = payable(msg.sender).call{value: amount}("");
-            require(success, "ETH transfer failed");
+            if (!success) revert ETHTransferFailed();
         } else {
             // ERC20 withdrawal
             IERC20(token).safeTransfer(msg.sender, amount);
@@ -135,20 +274,23 @@ contract CrashGuardCore is ICrashGuardCore, Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Set protection policy for user
+     * @dev Set protection policy for user - client configurable
      * @param policy Protection policy configuration
      */
     function setProtectionPolicy(ProtectionPolicy memory policy) external {
-        require(
-            policy.crashThreshold > 0 && policy.crashThreshold <= 10000,
-            "Invalid crash threshold"
-        );
-        require(policy.maxSlippage <= MAX_SLIPPAGE, "Slippage too high");
-        require(
-            policy.stablecoinPreference != address(0),
-            "Invalid stablecoin"
-        );
-        require(policy.gasLimit >= 21000, "Gas limit too low");
+        if (policy.crashThreshold == 0 || policy.crashThreshold > 10000) {
+            revert InvalidCrashThreshold();
+        }
+        if (policy.maxSlippage > MAX_SLIPPAGE_LIMIT) {
+            revert MaxSlippageExceeded();
+        }
+        if (policy.stablecoinPreference == address(0)) {
+            revert InvalidStablecoin();
+        }
+        if (!isStablecoin[policy.stablecoinPreference]) {
+            revert StablecoinNotRegistered();
+        }
+        if (policy.gasLimit < 21000) revert GasLimitTooLow();
 
         userPolicies[msg.sender] = policy;
 
@@ -208,12 +350,53 @@ contract CrashGuardCore is ICrashGuardCore, Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Add supported token
+     * @dev Add supported token (optional in permissionless mode)
      * @param token Token address to add
+     * @param _isStablecoin Whether token is a stablecoin
      */
-    function addSupportedToken(address token) external onlyOwner {
-        require(token != address(0), "Invalid token address");
+    function addSupportedToken(
+        address token,
+        bool _isStablecoin
+    ) external onlyOwner {
+        if (token == address(0)) revert InvalidTokenAddress();
         supportedTokens[token] = true;
+        isStablecoin[token] = _isStablecoin;
+    }
+
+    /**
+     * @dev Toggle permissionless mode
+     * @param _permissionless True to enable permissionless deposits
+     */
+    function setPermissionlessMode(bool _permissionless) external onlyOwner {
+        permissionlessMode = _permissionless;
+        emit PermissionlessModeUpdated(_permissionless);
+    }
+
+    /**
+     * @dev Blacklist a token (security measure)
+     * @param token Token address to blacklist
+     * @param blacklisted True to blacklist, false to remove from blacklist
+     */
+    function setTokenBlacklist(
+        address token,
+        bool blacklisted
+    ) external onlyOwner {
+        blacklistedTokens[token] = blacklisted;
+        emit TokenBlacklistUpdated(token, blacklisted);
+    }
+
+    /**
+     * @dev Authorize bridge for cross-chain deposits
+     * @param bridge Bridge contract address
+     * @param authorized True to authorize, false to revoke
+     */
+    function setAuthorizedBridge(
+        address bridge,
+        bool authorized
+    ) external onlyOwner {
+        if (bridge == address(0)) revert InvalidBridgeAddress();
+        authorizedBridges[bridge] = authorized;
+        emit BridgeAuthorizationUpdated(bridge, authorized);
     }
 
     /**
@@ -221,8 +404,22 @@ contract CrashGuardCore is ICrashGuardCore, Ownable, ReentrancyGuard {
      * @param token Token address to remove
      */
     function removeSupportedToken(address token) external onlyOwner {
-        require(token != address(0), "Cannot remove ETH");
+        if (token == address(0)) revert CannotRemoveETH();
         supportedTokens[token] = false;
+        isStablecoin[token] = false;
+    }
+
+    /**
+     * @dev Update stablecoin status
+     * @param token Token address
+     * @param _isStablecoin Stablecoin status
+     */
+    function setStablecoinStatus(
+        address token,
+        bool _isStablecoin
+    ) external onlyOwner {
+        require(supportedTokens[token], "Token not supported");
+        isStablecoin[token] = _isStablecoin;
     }
 
     /**
@@ -356,9 +553,26 @@ contract CrashGuardCore is ICrashGuardCore, Ownable, ReentrancyGuard {
         address token,
         uint256 amount,
         string calldata litActionId
-    ) external payable nonReentrant validToken(token) onlyLitAction(litActionId) {
+    )
+        external
+        payable
+        nonReentrant
+        validToken(token)
+        onlyLitAction(litActionId)
+    {
         require(user != address(0), "Invalid user address");
-        require(amount >= MIN_DEPOSIT, "Amount below minimum");
+        // Check minimum deposit based on token type
+        if (isStablecoin[token]) {
+            require(
+                amount >= MIN_STABLECOIN_DEPOSIT,
+                "Minimum 1 stablecoin required"
+            );
+        } else {
+            require(
+                amount >= MIN_TOKEN_DEPOSIT,
+                "Minimum 0.01 tokens required"
+            );
+        }
         require(pkpAuthorizedUsers[user], "User not PKP authorized");
 
         if (token == address(0)) {
@@ -406,7 +620,9 @@ contract CrashGuardCore is ICrashGuardCore, Ownable, ReentrancyGuard {
         // Transfer assets to the Lit Action executor (emergency executor)
         if (token == address(0)) {
             // ETH withdrawal
-            (bool success, ) = payable(emergencyExecutor).call{value: amount}("");
+            (bool success, ) = payable(emergencyExecutor).call{value: amount}(
+                ""
+            );
             require(success, "ETH transfer failed");
         } else {
             // ERC20 withdrawal
@@ -433,12 +649,16 @@ contract CrashGuardCore is ICrashGuardCore, Ownable, ReentrancyGuard {
 
         // Verify PKP is registered with Lit Protocol
         if (address(litRelayContract) != address(0)) {
-            require(litRelayContract.isPKPRegistered(pkpAddress), "PKP not registered");
+            require(
+                litRelayContract.isPKPRegistered(pkpAddress),
+                "PKP not registered"
+            );
         }
 
         // Verify user has PKP authentication
         if (address(litProtocolIntegration) != address(0)) {
-            ILitProtocolIntegration.PKPAuth memory pkpAuth = litProtocolIntegration.getUserPKP(user);
+            ILitProtocolIntegration.PKPAuth
+                memory pkpAuth = litProtocolIntegration.getUserPKP(user);
             require(pkpAuth.pkpAddress == pkpAddress, "PKP address mismatch");
             require(pkpAuth.isActive, "PKP not active");
         }
@@ -461,9 +681,13 @@ contract CrashGuardCore is ICrashGuardCore, Ownable, ReentrancyGuard {
      * @dev Set Lit Protocol integration contract
      * @param _litProtocolIntegration Lit Protocol integration contract address
      */
-    function setLitProtocolIntegration(address _litProtocolIntegration) external onlyOwner {
+    function setLitProtocolIntegration(
+        address _litProtocolIntegration
+    ) external onlyOwner {
         require(_litProtocolIntegration != address(0), "Invalid address");
-        litProtocolIntegration = ILitProtocolIntegration(_litProtocolIntegration);
+        litProtocolIntegration = ILitProtocolIntegration(
+            _litProtocolIntegration
+        );
     }
 
     /**
@@ -486,15 +710,19 @@ contract CrashGuardCore is ICrashGuardCore, Ownable, ReentrancyGuard {
         bytes32 executionHash,
         string calldata litActionId
     ) external onlyEmergencyExecutor {
-        require(!processedLitActionExecutions[executionHash], "Execution already processed");
+        require(
+            !processedLitActionExecutions[executionHash],
+            "Execution already processed"
+        );
         require(pkpAuthorizedUsers[user], "User not PKP authorized");
         require(
-            keccak256(bytes(userLitActions[user])) == keccak256(bytes(litActionId)),
+            keccak256(bytes(userLitActions[user])) ==
+                keccak256(bytes(litActionId)),
             "Lit Action ID mismatch"
         );
 
         processedLitActionExecutions[executionHash] = true;
-        
+
         // Trigger emergency protection for the user
         emit EmergencyProtectionTriggered(user, block.timestamp);
     }
@@ -509,11 +737,75 @@ contract CrashGuardCore is ICrashGuardCore, Ownable, ReentrancyGuard {
     }
 
     /**
+     * @dev Auto-detect if token is a stablecoin (basic heuristic)
+     * @param token Token address
+     */
+    function _autoDetectStablecoin(address token) private {
+        try IERC20Metadata(token).symbol() returns (string memory symbol) {
+            bytes32 symbolHash = keccak256(bytes(symbol));
+
+            // Common stablecoin symbols
+            if (
+                symbolHash == keccak256("USDC") ||
+                symbolHash == keccak256("USDT") ||
+                symbolHash == keccak256("DAI") ||
+                symbolHash == keccak256("BUSD") ||
+                symbolHash == keccak256("FRAX") ||
+                symbolHash == keccak256("TUSD") ||
+                symbolHash == keccak256("USDP")
+            ) {
+                isStablecoin[token] = true;
+                emit StablecoinAutoDetected(token, symbol);
+            }
+        } catch {
+            // If symbol() fails, assume it's not a stablecoin
+        }
+    }
+
+    /**
+     * @dev Check if token is supported (permissionless or whitelisted)
+     * @param token Token address
+     * @return bool True if token can be deposited
+     */
+    function isTokenSupported(address token) external view returns (bool) {
+        if (permissionlessMode) {
+            return !blacklistedTokens[token];
+        } else {
+            return supportedTokens[token];
+        }
+    }
+
+    /**
+     * @dev Get token info
+     * @param token Token address
+     * @return supported Whether token is supported
+     * @return stablecoin Whether token is a stablecoin
+     * @return blacklisted Whether token is blacklisted
+     */
+    function getTokenInfo(
+        address token
+    )
+        external
+        view
+        returns (bool supported, bool stablecoin, bool blacklisted)
+    {
+        if (permissionlessMode) {
+            supported = !blacklistedTokens[token];
+        } else {
+            supported = supportedTokens[token];
+        }
+        stablecoin = isStablecoin[token];
+        blacklisted = blacklistedTokens[token];
+    }
+
+    /**
      * @dev Get user's associated Lit Action ID
      * @param user User address
      * @return string Lit Action ID
      */
-    function getUserLitAction(address user) external view returns (string memory) {
+    function getUserLitAction(
+        address user
+    ) external view returns (string memory) {
         return userLitActions[user];
     }
 

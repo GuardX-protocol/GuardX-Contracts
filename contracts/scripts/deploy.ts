@@ -28,11 +28,11 @@ async function main() {
         const UNISWAP_ROUTER = process.env.UNISWAP_ROUTER;
         const UNISWAP_QUOTER = process.env.UNISWAP_QUOTER;
 
-        console.log("1. Deploying PythPriceMonitor...");
+        console.log("1. Deploying PythPriceMonitor_v2 (Real-time)...");
         const PythPriceMonitor = await ethers.getContractFactory("PythPriceMonitor");
         const pythPriceMonitor = await PythPriceMonitor.deploy(PYTH_CONTRACT);
         await pythPriceMonitor.waitForDeployment();
-        console.log("✓ PythPriceMonitor:", await pythPriceMonitor.getAddress());
+        console.log("✓ PythPriceMonitor_v2:", await pythPriceMonitor.getAddress());
         await sleep(2000);
 
         console.log("\n2. Deploying DEXAggregator...");
@@ -105,6 +105,15 @@ async function main() {
         console.log("✓ PortfolioRebalancer:", await portfolioRebalancer.getAddress());
         await sleep(2000);
 
+        console.log("\n10. Deploying SimpleCrossChainBridge...");
+        const SimpleCrossChainBridge = await ethers.getContractFactory("SimpleCrossChainBridge");
+        const simpleCrossChainBridge = await SimpleCrossChainBridge.deploy(
+            await crashGuardCore.getAddress()
+        );
+        await simpleCrossChainBridge.waitForDeployment();
+        console.log("✓ SimpleCrossChainBridge:", await simpleCrossChainBridge.getAddress());
+        await sleep(2000);
+
         console.log("\n✅ All contracts deployed!\n");
 
         console.log("📝 Configuring contracts...");
@@ -150,6 +159,29 @@ async function main() {
 
         const tx11 = await litRelayContract.setAuthorizedRelayer(await crossChainEmergencyCoordinator.getAddress(), true);
         await tx11.wait();
+        await sleep(1000);
+
+        console.log("Configuring SimpleCrossChainBridge...");
+        const tx12 = await crashGuardCore.setAuthorizedBridge(await simpleCrossChainBridge.getAddress(), true);
+        await tx12.wait();
+        await sleep(1000);
+
+        // Configure supported chains for the bridge (example: Ethereum mainnet, Arbitrum, Polygon)
+        const tx13 = await simpleCrossChainBridge.setChainSupport(1, true); // Ethereum mainnet
+        await tx13.wait();
+        await sleep(1000);
+
+        const tx14 = await simpleCrossChainBridge.setChainSupport(42161, true); // Arbitrum One
+        await tx14.wait();
+        await sleep(1000);
+
+        const tx15 = await simpleCrossChainBridge.setChainSupport(137, true); // Polygon
+        await tx15.wait();
+        await sleep(1000);
+
+        // Authorize deployer as relayer for testing
+        const tx16 = await simpleCrossChainBridge.setRelayerAuthorization(deployer.address, true);
+        await tx16.wait();
 
         console.log("✓ Configuration complete\n");
 
@@ -162,11 +194,12 @@ async function main() {
             LitProtocolIntegration: await litProtocolIntegration.getAddress(),
             CrossChainManager: await crossChainManager.getAddress(),
             CrossChainEmergencyCoordinator: await crossChainEmergencyCoordinator.getAddress(),
-            PortfolioRebalancer: await portfolioRebalancer.getAddress()
+            PortfolioRebalancer: await portfolioRebalancer.getAddress(),
+            SimpleCrossChainBridge: await simpleCrossChainBridge.getAddress()
         };
 
         console.log("=== DEPLOYMENT SUMMARY ===");
-        console.log("Network: Base Sepolia (Chain ID: 84532)");
+        console.log(`Network: ${(await network.connect()).networkName} (Chain ID: ${(await network.connect()).networkConfig.chainId})`);
         console.log("\nDeployed Contracts:");
         Object.entries(addresses).forEach(([name, address]) => {
             console.log(`${name}: ${address}`);
@@ -183,7 +216,7 @@ async function main() {
             fs.mkdirSync(deploymentsDir, { recursive: true });
         }
 
-        
+
         const networkName = (await network.connect()).networkName;
 
         const deploymentInfo = {
@@ -216,6 +249,7 @@ async function main() {
         console.log(`npx hardhat verify --network ${networkName} ${addresses.CrossChainManager} ${addresses.LitRelayContract} ${addresses.LitProtocolIntegration}`);
         console.log(`npx hardhat verify --network ${networkName} ${addresses.CrossChainEmergencyCoordinator} ${addresses.LitRelayContract} ${addresses.LitProtocolIntegration} ${addresses.CrossChainManager}`);
         console.log(`npx hardhat verify --network ${networkName} ${addresses.PortfolioRebalancer} ${addresses.CrashGuardCore} ${addresses.DEXAggregator} ${addresses.PythPriceMonitor}`);
+        console.log(`npx hardhat verify --network ${networkName} ${addresses.SimpleCrossChainBridge} ${addresses.CrashGuardCore}`);
 
     } catch (error) {
         console.error("\n❌ Deployment failed:", error);

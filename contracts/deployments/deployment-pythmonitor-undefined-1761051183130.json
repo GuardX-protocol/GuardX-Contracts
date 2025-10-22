@@ -1,0 +1,10 @@
+{
+  "chainId": "421614",
+  "timestamp": "2025-10-21T12:53:03.129Z",
+  "contracts": {
+    "PythPriceMonitor": "0x78694a7A55f478e5Fee95Be6Aa5AC7A13c435C9B"
+  },
+  "externalContracts": {
+    "PythContract": "0x4374e5a8b9C22271E9EB878A2AA31DE97DF15DAF"
+  }
+}

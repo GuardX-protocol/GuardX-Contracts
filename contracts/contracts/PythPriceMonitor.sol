@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
-import "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {IPyth} from "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
+import {PythStructs} from "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "./interfaces/IPythPriceMonitor.sol";
 
+/**
+ * @title PythPriceMonitor - Real-time Price Monitoring with Pyth Network
+ * @notice Fetches and monitors real-time price data from Pyth Network
+ * @dev Supports both real-time updates via Hermes API and reading cached prices
+ */
 contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
     IPyth public immutable PYTH;
     
@@ -18,12 +23,18 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
     
     // Crash detection parameters
     uint256 private constant MAX_PRICE_AGE = 300; // 5 minutes
-    uint256 private constant HISTORY_LIMIT = 100; // Keep last 100 price updates
-    uint256 private constant PRECISION = 1e8; // Price precision
+    uint256 private constant REALTIME_MAX_AGE = 60; // 60 seconds for real-time
+    uint256 private constant HISTORY_LIMIT = 100;
+    uint256 private constant PRECISION = 1e8;
     
     // Emergency controls
     bool public emergencyPaused = false;
     address public crashGuardCore;
+    
+    // Events
+    event PricesUpdatedRealtime(uint256 timestamp);
+    event PriceFeedAdded(bytes32 indexed priceId, address indexed token);
+    event PriceFeedRemoved(bytes32 indexed priceId);
     
     modifier notPaused() {
         require(!emergencyPaused, "Contract is paused");
@@ -41,7 +52,35 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Update prices from Pyth Network
+     * @dev Update prices with real-time data from Pyth Hermes API
+     * @param priceUpdateData Signed price update data from Hermes
+     * @notice Call this with data from: https://hermes.pyth.network/api/latest_vaas?ids[]=<price_id>
+     */
+    function updatePricesRealtime(bytes[] calldata priceUpdateData) 
+        external 
+        payable 
+        nonReentrant 
+        notPaused 
+    {
+        require(priceUpdateData.length > 0, "No price update data");
+        
+        // Get required fee for update
+        uint256 updateFee = PYTH.getUpdateFee(priceUpdateData);
+        require(msg.value >= updateFee, "Insufficient fee");
+        
+        // Update Pyth contract with real-time data
+        PYTH.updatePriceFeeds{value: updateFee}(priceUpdateData);
+        
+        // Refund excess
+        if (msg.value > updateFee) {
+            payable(msg.sender).transfer(msg.value - updateFee);
+        }
+        
+        emit PricesUpdatedRealtime(block.timestamp);
+    }
+    
+    /**
+     * @dev Update prices (legacy interface compatibility)
      * @param priceIds Array of price feed IDs to update
      */
     function updatePrices(bytes32[] calldata priceIds) 
@@ -50,36 +89,84 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
         nonReentrant 
         notPaused 
     {
-        require(priceIds.length > 0, "No price IDs provided");
+        // Refund any ETH sent (not needed for reading)
+        if (msg.value > 0) {
+            payable(msg.sender).transfer(msg.value);
+        }
         
-        // Get update fee from Pyth
-        bytes[] memory emptyUpdateData = new bytes[](priceIds.length);
-        uint256 updateFee = PYTH.getUpdateFee(emptyUpdateData);
-        require(msg.value >= updateFee, "Insufficient fee");
+        // Read latest prices
+        _readLatestPrices(priceIds);
+    }
+    
+    /**
+     * @dev Read and cache latest prices from Pyth
+     * @param priceIds Price feed IDs to read
+     */
+    function readLatestPrices(bytes32[] calldata priceIds) 
+        external 
+        nonReentrant 
+        notPaused 
+    {
+        _readLatestPrices(priceIds);
+    }
+    
+    /**
+     * @dev Internal function to read and cache prices
+     * @param priceIds Price feed IDs to read
+     */
+    function _readLatestPrices(bytes32[] calldata priceIds) 
+        private 
+    {
+        require(priceIds.length > 0, "No price IDs");
         
-        // Get prices from Pyth contract
+        uint256 successCount = 0;
         for (uint256 i = 0; i < priceIds.length; i++) {
-            try PYTH.getPrice(priceIds[i]) returns (PythStructs.Price memory price) {
+            try PYTH.getPriceNoOlderThan(priceIds[i], REALTIME_MAX_AGE) returns (
+                PythStructs.Price memory price
+            ) {
                 _storePriceData(priceIds[i], price);
+                successCount++;
             } catch {
-                // Handle individual price feed failures gracefully
-                continue;
+                // Fallback to slightly older data
+                try PYTH.getPriceNoOlderThan(priceIds[i], MAX_PRICE_AGE) returns (
+                    PythStructs.Price memory price
+                ) {
+                    _storePriceData(priceIds[i], price);
+                    successCount++;
+                } catch {
+                    continue;
+                }
             }
         }
         
-        // Refund excess payment
-        if (msg.value > updateFee) {
-            (bool success, ) = payable(msg.sender).call{value: msg.value - updateFee}("");
-            require(success, "Refund failed");
-        }
-        
+        require(successCount > 0, "No prices updated");
         emit PricesUpdated(priceIds, block.timestamp);
     }
     
     /**
-     * @dev Get latest price for a given price ID
-     * @param priceId Pyth price feed ID
-     * @return PriceData struct with latest price information
+     * @dev Get real-time price directly from Pyth
+     * @param priceId Price feed ID
+     * @return PriceData Real-time price
+     */
+    function getRealtimePrice(bytes32 priceId) 
+        external 
+        view 
+        returns (PriceData memory) 
+    {
+        PythStructs.Price memory pythPrice = PYTH.getPriceNoOlderThan(priceId, REALTIME_MAX_AGE);
+        
+        return PriceData({
+            price: _convertPythPrice(pythPrice.price, pythPrice.expo),
+            timestamp: block.timestamp,
+            confidence: _convertPythPrice(int64(pythPrice.conf), pythPrice.expo),
+            isValid: pythPrice.price > 0
+        });
+    }
+    
+    /**
+     * @dev Get latest cached price
+     * @param priceId Price feed ID
+     * @return PriceData Latest cached price
      */
     function getLatestPrice(bytes32 priceId) 
         external 
@@ -89,7 +176,6 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
         PriceData memory priceData = latestPrices[priceId];
         require(priceData.timestamp > 0, "Price not available");
         
-        // Check if price is stale
         if (block.timestamp - priceData.timestamp > MAX_PRICE_AGE) {
             priceData.isValid = false;
         }
@@ -98,26 +184,36 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Detect multi-asset crash based on thresholds
+     * @dev Get update fee for real-time updates
+     * @param priceUpdateData Price update data
+     * @return Fee in wei
+     */
+    function getUpdateFee(bytes[] calldata priceUpdateData) 
+        external 
+        view 
+        returns (uint256) 
+    {
+        return PYTH.getUpdateFee(priceUpdateData);
+    }
+    
+    /**
+     * @dev Detect multi-asset crash
      * @param thresholds Crash detection parameters
-     * @return True if crash conditions are met
+     * @return True if crash detected
      */
     function detectMultiAssetCrash(CrashThresholds memory thresholds) 
         external 
         view 
         returns (bool) 
     {
-        require(thresholds.singleAssetThreshold > 0, "Invalid single asset threshold");
-        require(thresholds.multiAssetThreshold > 0, "Invalid multi asset threshold");
+        require(thresholds.singleAssetThreshold > 0, "Invalid threshold");
+        require(thresholds.multiAssetThreshold > 0, "Invalid multi threshold");
         require(thresholds.timeWindow > 0, "Invalid time window");
-        require(thresholds.minimumAssets >= 2, "Minimum assets must be >= 2");
+        require(thresholds.minimumAssets >= 2, "Min assets must be >= 2");
         
         uint256 crashedAssets = 0;
         uint256 totalAssets = 0;
         
-        // Check all monitored assets for crash conditions
-        // This is a simplified implementation - in practice, you'd iterate through
-        // a registry of monitored assets
         bytes32[] memory monitoredPriceIds = _getMonitoredPriceIds();
         
         for (uint256 i = 0; i < monitoredPriceIds.length; i++) {
@@ -131,7 +227,6 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
             
             totalAssets++;
             
-            // Get historical price for comparison
             PriceData memory historicalPrice = _getHistoricalPrice(priceId, thresholds.timeWindow);
             
             if (historicalPrice.timestamp > 0) {
@@ -143,9 +238,8 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
             }
         }
         
-        // Check if crash conditions are met
         if (totalAssets >= thresholds.minimumAssets && crashedAssets >= thresholds.minimumAssets) {
-            uint256 crashPercentage = (crashedAssets * 10000) / totalAssets; // Basis points
+            uint256 crashPercentage = (crashedAssets * 10000) / totalAssets;
             return crashPercentage >= thresholds.multiAssetThreshold;
         }
         
@@ -153,10 +247,10 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Get price history for a given price ID
-     * @param priceId Pyth price feed ID
+     * @dev Get price history
+     * @param priceId Price feed ID
      * @param timeRange Time range in seconds
-     * @return Array of historical price data
+     * @return Historical prices
      */
     function getPriceHistory(bytes32 priceId, uint256 timeRange) 
         external 
@@ -168,7 +262,6 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
         PriceData[] storage history = priceHistory[priceId];
         uint256 cutoffTime = block.timestamp - timeRange;
         
-        // Count valid entries within time range
         uint256 validCount = 0;
         for (uint256 i = 0; i < history.length; i++) {
             if (history[i].timestamp >= cutoffTime) {
@@ -176,7 +269,6 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
             }
         }
         
-        // Create result array
         PriceData[] memory result = new PriceData[](validCount);
         uint256 resultIndex = 0;
         
@@ -191,24 +283,26 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Add a new price feed to monitor
+     * @dev Add price feed to monitor
      * @param priceId Pyth price feed ID
-     * @param tokenAddress Associated token address
+     * @param tokenAddress Token address
      */
     function addPriceFeed(bytes32 priceId, address tokenAddress) 
         external 
         onlyOwner 
     {
         require(priceId != bytes32(0), "Invalid price ID");
-        require(tokenAddress != address(0), "Invalid token address");
+        require(tokenAddress != address(0), "Invalid token");
         
         priceIdToToken[priceId] = tokenAddress;
         tokenToPriceId[tokenAddress] = priceId;
+        
+        emit PriceFeedAdded(priceId, tokenAddress);
     }
     
     /**
-     * @dev Remove a price feed from monitoring
-     * @param priceId Pyth price feed ID
+     * @dev Remove price feed
+     * @param priceId Price feed ID
      */
     function removePriceFeed(bytes32 priceId) 
         external 
@@ -219,11 +313,13 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
         delete tokenToPriceId[tokenAddress];
         delete latestPrices[priceId];
         delete priceHistory[priceId];
+        
+        emit PriceFeedRemoved(priceId);
     }
     
     /**
-     * @dev Set CrashGuardCore contract address
-     * @param _crashGuardCore Address of the CrashGuardCore contract
+     * @dev Set CrashGuardCore address
+     * @param _crashGuardCore CrashGuardCore contract
      */
     function setCrashGuardCore(address _crashGuardCore) 
         external 
@@ -234,8 +330,8 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Emergency pause function
-     * @param paused True to pause, false to unpause
+     * @dev Emergency pause
+     * @param paused Pause status
      */
     function setEmergencyPause(bool paused) 
         external 
@@ -245,9 +341,9 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Get price for token address
-     * @param tokenAddress Token contract address
-     * @return PriceData struct
+     * @dev Get price by token address
+     * @param tokenAddress Token address
+     * @return PriceData Price data
      */
     function getPriceByToken(address tokenAddress) 
         external 
@@ -260,10 +356,25 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Check if crash conditions exist for specific assets
-     * @param assets Array of token addresses to check
-     * @param threshold Crash threshold percentage (basis points)
-     * @param timeWindow Time window for comparison
+     * @dev Check if price is fresh
+     * @param priceId Price feed ID
+     * @return True if fresh
+     */
+    function isPriceFresh(bytes32 priceId) 
+        external 
+        view 
+        returns (bool) 
+    {
+        PriceData memory priceData = latestPrices[priceId];
+        return priceData.isValid && 
+               (block.timestamp - priceData.timestamp) <= MAX_PRICE_AGE;
+    }
+    
+    /**
+     * @dev Check assets for crash
+     * @param assets Token addresses
+     * @param threshold Crash threshold (basis points)
+     * @param timeWindow Time window
      * @return True if crash detected
      */
     function checkAssetsCrash(
@@ -271,7 +382,7 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
         uint256 threshold, 
         uint256 timeWindow
     ) external view returns (bool) {
-        require(assets.length > 0, "No assets provided");
+        require(assets.length > 0, "No assets");
         require(threshold > 0, "Invalid threshold");
         
         uint256 crashedCount = 0;
@@ -292,14 +403,11 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
             }
         }
         
-        return crashedCount >= (assets.length * 6000) / 10000; // 60% of assets crashed
+        return crashedCount >= (assets.length * 6000) / 10000; // 60% threshold
     }
     
-    /**
-     * @dev Internal function to store price data
-     * @param priceId Price feed ID
-     * @param pythPrice Pyth price struct
-     */
+    // Internal functions
+    
     function _storePriceData(bytes32 priceId, PythStructs.Price memory pythPrice) 
         private 
     {
@@ -312,26 +420,15 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
         
         latestPrices[priceId] = priceData;
         
-        // Add to history
         PriceData[] storage history = priceHistory[priceId];
-        history.push(priceData);
-        
-        // Maintain history limit
-        if (history.length > HISTORY_LIMIT) {
-            // Remove oldest entry
-            for (uint256 i = 0; i < history.length - 1; i++) {
-                history[i] = history[i + 1];
-            }
-            history.pop();
+        if (history.length < HISTORY_LIMIT) {
+            history.push(priceData);
+        } else {
+            uint256 oldestIndex = block.timestamp % HISTORY_LIMIT;
+            history[oldestIndex] = priceData;
         }
     }
     
-    /**
-     * @dev Convert Pyth price format to standard format
-     * @param price Pyth price value
-     * @param expo Pyth price exponent
-     * @return Converted price
-     */
     function _convertPythPrice(int64 price, int32 expo) 
         private 
         pure 
@@ -339,31 +436,20 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
     {
         if (price <= 0) return 0;
         
-        uint256 absPrice;
-        if (price >= 0) {
-            absPrice = uint256(int256(price));
-        } else {
-            absPrice = uint256(int256(-price));
-        }
+        uint256 absPrice = uint256(int256(price));
         
         if (expo >= 0) {
             return absPrice * (10 ** uint32(expo));
         } else {
             uint32 absExpo = uint32(uint256(int256(-expo)));
             if (absExpo >= 18) {
-                return absPrice / (10 ** (absExpo - 8)); // Maintain 8 decimal precision
+                return absPrice / (10 ** (absExpo - 8));
             } else {
                 return absPrice * (10 ** (8 - absExpo));
             }
         }
     }
     
-    /**
-     * @dev Get historical price within time window
-     * @param priceId Price feed ID
-     * @param timeWindow Time window in seconds
-     * @return Historical price data
-     */
     function _getHistoricalPrice(bytes32 priceId, uint256 timeWindow) 
         private 
         view 
@@ -372,7 +458,6 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
         PriceData[] storage history = priceHistory[priceId];
         uint256 targetTime = block.timestamp - timeWindow;
         
-        // Find closest historical price
         for (uint256 i = history.length; i > 0; i--) {
             if (history[i - 1].timestamp <= targetTime) {
                 return history[i - 1];
@@ -382,68 +467,25 @@ contract PythPriceMonitor is IPythPriceMonitor, Ownable, ReentrancyGuard {
         return PriceData(0, 0, 0, false);
     }
     
-    /**
-     * @dev Calculate price change percentage
-     * @param oldPrice Previous price
-     * @param newPrice Current price
-     * @return Price change in basis points
-     */
     function _calculatePriceChange(uint256 oldPrice, uint256 newPrice) 
         private 
         pure 
         returns (uint256) 
     {
         if (oldPrice == 0) return 0;
-        
-        if (newPrice >= oldPrice) {
-            return 0; // No crash if price increased
-        }
+        if (newPrice >= oldPrice) return 0;
         
         uint256 decrease = oldPrice - newPrice;
-        return (decrease * 10000) / oldPrice; // Return in basis points
+        return (decrease * 10000) / oldPrice;
     }
     
-    /**
-     * @dev Get list of monitored price IDs
-     * @return Array of price IDs being monitored
-     */
     function _getMonitoredPriceIds() 
         private 
         view 
         returns (bytes32[] memory) 
     {
-        // This is a simplified implementation
-        // In practice, you'd maintain a registry of monitored price IDs
+        // In production, maintain a registry of monitored price IDs
         bytes32[] memory priceIds = new bytes32[](0);
         return priceIds;
-    }
-    
-    /**
-     * @dev Get update fee for price updates
-     * @param priceIds Array of price feed IDs
-     * @return Required fee amount
-     */
-    function getUpdateFee(bytes32[] calldata priceIds) 
-        external 
-        view 
-        returns (uint256) 
-    {
-        bytes[] memory emptyUpdateData = new bytes[](priceIds.length);
-        return PYTH.getUpdateFee(emptyUpdateData);
-    }
-    
-    /**
-     * @dev Check if price data is fresh
-     * @param priceId Price feed ID
-     * @return True if price is fresh
-     */
-    function isPriceFresh(bytes32 priceId) 
-        external 
-        view 
-        returns (bool) 
-    {
-        PriceData memory priceData = latestPrices[priceId];
-        return priceData.isValid && 
-               (block.timestamp - priceData.timestamp) <= MAX_PRICE_AGE;
     }
 }

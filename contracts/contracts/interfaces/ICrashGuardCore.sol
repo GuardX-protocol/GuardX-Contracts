@@ -36,6 +36,19 @@ interface ICrashGuardCore {
     );
     event PolicyUpdated(address indexed user, ProtectionPolicy policy);
     event EmergencyProtectionTriggered(address indexed user, uint256 timestamp);
+    
+    // New events for permissionless and cross-chain functionality
+    event CrossChainDepositProcessed(
+        address indexed user,
+        address indexed token,
+        uint256 amount,
+        uint256 indexed sourceChain,
+        bytes32 depositHash
+    );
+    event PermissionlessModeUpdated(bool enabled);
+    event TokenBlacklistUpdated(address indexed token, bool blacklisted);
+    event BridgeAuthorizationUpdated(address indexed bridge, bool authorized);
+    event StablecoinAutoDetected(address indexed token, string symbol);
 
     function depositAsset(address token, uint256 amount) external payable;
     function withdrawAsset(address token, uint256 amount) external;
@@ -85,4 +98,23 @@ interface ICrashGuardCore {
     function isPKPAuthorized(address user) external view returns (bool);
     
     function getUserLitAction(address user) external view returns (string memory);
+    
+    // Cross-chain functionality
+    function crossChainDeposit(
+        address user,
+        address token,
+        uint256 amount,
+        uint256 sourceChain,
+        bytes32 depositHash
+    ) external;
+    
+    function setPermissionlessMode(bool _permissionless) external;
+    function setTokenBlacklist(address token, bool blacklisted) external;
+    function setAuthorizedBridge(address bridge, bool authorized) external;
+    function isTokenSupported(address token) external view returns (bool);
+    function getTokenInfo(address token) external view returns (
+        bool supported,
+        bool stablecoin,
+        bool blacklisted
+    );
 }

@@ -49,11 +49,13 @@ const config: any = {
     },
     arbitrumSepolia: {
       type: "http",
-      url: process.env.ARBITRUM_SEPOLIA_RPC_URL || "https://arbitrum-sepolia.drpc.org",
+      url: process.env.ARBITRUM_SEPOLIA_RPC_URL || "https://sepolia-rollup.arbitrum.io/rpc",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 421614,
       gas: 6000000,
-      gasPrice: 20000000000
+      gasPrice: 20000000000,
+      timeout: 120000, // 2 minutes timeout
+      httpHeaders: {}
     },
     polygon: {
       type: "http",
